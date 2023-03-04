@@ -183,4 +183,3 @@ def cli_arguments():
 
 if __name__ == '__main__':
     cli_arguments()
-    # MeckanoReporter("tamir.sror@xtend.me", "a9e5y5y4").report("25-02-2023", "24-03-2023", "09:00", "19:00", clear_page=False, accept_date_list=["26/02/2023", "27/02/2023"])
