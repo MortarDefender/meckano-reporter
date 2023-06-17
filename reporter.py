@@ -33,7 +33,7 @@ class MeckanoReporter():
     def __go_to_report(self, starting_date, ending_date):
         """ go to the report hours page """
         self.driver.find_element(By.CLASS_NAME, "calender").click()
-        
+
         if starting_date is not None and ending_date is not None:
             self.driver.get(f"{self.report_page}/{starting_date}/{ending_date}")
 
@@ -54,8 +54,18 @@ class MeckanoReporter():
             else:
                 input_entries[index].send_keys(Keys.DELETE)
 
-    def __report_hours(self, start_hour, end_hour, refresh_page_function, accept_date_list=None, ignore_date_list=[], clear_page=False):
+    def __report_hours(self, start_hour, end_hour, refresh_page_function, accept_date_list=None, ignore_date_list=[], clear_page=False, override=False):
         """ find and set all the hours input section to the start and end hours """
+
+        def move_to_next_line(move_window, height, line_index):
+            line_index += 1
+            return move_to_next_item(move_window, height), line_index
+
+        def move_to_next_item(move_window, height):
+            move_window(f"window.scrollTo(0, {height})")
+            height += height_addition
+            return height
+
         report_table = self.driver.find_element(By.CLASS_NAME, "employee-report")
         report_table_lines = report_table.find_elements(By.TAG_NAME, "tr")
 
@@ -63,32 +73,55 @@ class MeckanoReporter():
         max_line_index = len(report_table_lines)
         entry_index = 0
 
+        height = 50
+        height_addition = 30
+
         while line_index != max_line_index:
             report_line = report_table_lines[line_index]
             class_name = report_line.get_attribute("class")
 
             if "no-pointer" in class_name or "highlightingRestDays" in class_name:
-                line_index += 1
+                if self.verbose:
+                    print("rest day -> passing")
+
+                height, line_index = move_to_next_line(self.driver.execute_script, height, line_index)
                 continue
 
             report_line_info = report_line.find_element(By.CLASS_NAME, "employee-information")
             date_info = report_line_info.find_element(By.TAG_NAME, "p").text
             special_date_info = report_line.find_element(By.CLASS_NAME, "specialDayDescription").text
-
-            if special_date_info != "":
-                continue
+            employee_special_date_info = report_line.find_element(By.CLASS_NAME, "missing").text
+            special_reason = report_line.find_element(By.CLASS_NAME, "text-center").find_element(By.CLASS_NAME, "missing").text
+            checkin = report_line.find_element(By.CLASS_NAME, "checkin").text
+            checkout = report_line.find_element(By.CLASS_NAME, "checkout").text
 
             if self.verbose:
                 print("-" * 20)
                 print(date_info)
 
+            if (special_reason    != "" and special_reason    != "         " and special_reason    != "+") or \
+               (special_date_info != "" and special_date_info != "         " and special_date_info != "+") or \
+               (employee_special_date_info != "+" and employee_special_date_info != "         ") or \
+               (not override and (checkin  != "" and checkin  != "         " and checkin   != "                  " and \
+                                  checkout != "" and checkout != "         " and checkout  != "                  ")):
+                if self.verbose:
+                    print(f"special reason - passing -> !{special_reason}!")
+                    print(f"employee special day - passing -> !{employee_special_date_info}!")
+                    print(f"special day - passing -> !{special_date_info}!")
+                    print(f"date already field - passing -> !{checkin}! - !{checkout}!")
+
+                height, line_index = move_to_next_line(self.driver.execute_script, height, line_index)
+                continue
+
             if date_info.split(" ")[0] in ignore_date_list:
+                height, line_index = move_to_next_line(self.driver.execute_script, height, line_index)
                 continue
 
             if accept_date_list is None or date_info.split(" ")[0] in accept_date_list:
                 _time = start_hour if entry_index == 0 else end_hour
                 self.__find_report_hours(report_line, entry_index, _time, clear_page)
             else:
+                height, line_index = move_to_next_line(self.driver.execute_script, height, line_index)
                 continue
 
             entry_index += 1
@@ -96,35 +129,23 @@ class MeckanoReporter():
             if entry_index == 2:
                 line_index += 1
                 entry_index = 0
-    
+
             refresh_page_function()
 
+            height = move_to_next_item(self.driver.execute_script, height)
             report_table = self.driver.find_element(By.CLASS_NAME, "employee-report")
             report_table_lines = report_table.find_elements(By.TAG_NAME, "tr")
 
-    def report(self, starting_date=None, ending_date=None, start_hour="09:00", end_hour="19:00", accept_date_list=None, ignore_date_list=[], clear_page=False):
-        self.__login()
-        sleep(3)
-
-        refresh_page = lambda: self.__go_to_report(starting_date, ending_date)
-        refresh_page()
-
-        self.__report_hours(start_hour, end_hour, refresh_page, accept_date_list, ignore_date_list, clear_page)
-    
-    def __report_a_day(self, day_date, start_hour="09:00", end_hour="19:00", clear_page=False):
+    def __report_a_day(self, day_date, start_hour="09:00", end_hour="19:00", clear_page=False, override=False):
+        """ report one day only """
         _date = f"{day_date.day}/{day_date.month}/{day_date.year}"
 
-        self.report(start_hour=start_hour, end_hour=end_hour, accept_date_list=[_date], clear_page=clear_page)
-    
-    def report_today(self, start_hour="09:00", end_hour="19:00", clear_page=False):
-        self.__report_a_day(day_date=date.today(), start_hour=start_hour, end_hour=end_hour, clear_page=clear_page)
-    
-    def report_yesterday(self, start_hour="09:00", end_hour="19:00", clear_page=False):
-        yesterday = date.today() - timedelta(days=1)
-        self.__report_a_day(day_date=yesterday, start_hour=start_hour, end_hour=end_hour, clear_page=clear_page)
-    
-    def __report_a_week(self, start_week_day, start_hour="09:00", end_hour="19:00", clear_page=False):
+        self.report(start_hour=start_hour, end_hour=end_hour, accept_date_list=[_date], clear_page=clear_page, override=override)
+
+    def __report_a_week(self, start_week_day, start_hour="09:00", end_hour="19:00", clear_page=False, override=False):
+        """ report a week starting from the last Sunday """
         end_week_day = start_week_day + timedelta(days=6)
+        format_number_date = lambda number: f"{number}" if int(number) >= 10 else f"0{number}"
 
         week_days = []
         for i in range(7):
@@ -133,27 +154,38 @@ class MeckanoReporter():
             if current_week_day > end_week_day:
                 break
 
-            week_days.append(f"{current_week_day.day}/{current_week_day.month}/{current_week_day.year}")
+            week_days.append(f"{format_number_date(current_week_day.day)}/{format_number_date(current_week_day.month)}/{current_week_day.year}")
 
-        self.report(start_hour=start_hour, end_hour=end_hour, accept_date_list=week_days, clear_page=clear_page)
+        self.report(start_hour=start_hour, end_hour=end_hour, accept_date_list=week_days, clear_page=clear_page, override=override)
 
-    def report_last_week(self, start_hour="09:00", end_hour="19:00", clear_page=False):
+    def report(self, starting_date=None, ending_date=None, start_hour="09:00", end_hour="19:00", accept_date_list=None, ignore_date_list=[], clear_page=False, override=False):
+        self.__login()
+        sleep(3)
+
+        refresh_page = lambda: self.__go_to_report(starting_date, ending_date)
+        refresh_page()
+
+        self.__report_hours(start_hour, end_hour, refresh_page, accept_date_list, ignore_date_list, clear_page, override=override)
+
+    def report_today(self, start_hour="09:00", end_hour="19:00", clear_page=False, override=False):
+        self.__report_a_day(day_date=date.today(), start_hour=start_hour, end_hour=end_hour, clear_page=clear_page, override=override)
+
+    def report_yesterday(self, start_hour="09:00", end_hour="19:00", clear_page=False, override=False):
+        yesterday = date.today() - timedelta(days=1)
+        self.__report_a_day(day_date=yesterday, start_hour=start_hour, end_hour=end_hour, clear_page=clear_page, override=override)
+
+    def report_last_week(self, start_hour="09:00", end_hour="19:00", clear_page=False, override=False):
         _date = date.today() - timedelta(days=7)
 
         for i in range(7):
             future_date = _date + timedelta(days=i)
             if future_date.ctime().startswith("Sun"):
-                self.__report_a_week(start_week_day=future_date, start_hour=start_hour, end_hour=end_hour, clear_page=clear_page)
-
-
-def help():
-    # print("python3 reporter.py username password --start_date day-month-year --end_date day-month-year --start_time hours:minutes --end_time hours:minutes")
-    # print("python3 reporter.py username password --start_date 25-02-2023 --end_date 24-03-2023 --start_time 09:00 --end_time 19:00")
-    pass
+                self.__report_a_week(start_week_day=future_date, start_hour=start_hour, end_hour=end_hour, clear_page=clear_page, override=override)
+                return
 
 
 def cli_arguments():
-    parser = argparse.ArgumentParser(description=help())
+    parser = argparse.ArgumentParser()
     parser.add_argument('username',      type=str,  help='username / email for the meckano website')
     parser.add_argument('password',      type=str,  help='password for the meckano website')
     parser.add_argument('--system_mode', type=str,  help='the action to activate', choices=["report_today", "report_yesterday", "report_last_week", "report"], default="report")
@@ -162,21 +194,23 @@ def cli_arguments():
     parser.add_argument('--start_time',  type=str,  help='the time to set at the start of each day', default="09:00")
     parser.add_argument('--end_time',    type=str,  help='the time to set at the end of each day', default="19:00")
     parser.add_argument('--clear_page',  type=bool, help='clear all dates', default=False)
+    parser.add_argument('--override_existing',  type=bool, help='override existing time', default=False)
+    parser.add_argument('--verbose',     type=bool, help='set erporter to verbose mode', default=False)
     # parser.add_argument('--ignore_date_list', type=list, help='dates to not report', default=[])
     # parser.add_argument('--accept_date_list', type=list, help='dates to report', default=[])
 
     args = parser.parse_args()
 
-    reporter = MeckanoReporter(args.username, args.password)
+    reporter = MeckanoReporter(args.username, args.password, verbose=args.verbose)
 
     if args.system_mode == "report":
-        reporter.report(args.start_date, args.end_date, args.start_time, args.end_time, args.clear_page)
+        reporter.report(args.start_date, args.end_date, args.start_time, args.end_time, args.clear_page, override=args.override_existing)
     elif args.system_mode == "report_today":
-        reporter.report_today(args.start_time, args.end_time, args.clear_page)
+        reporter.report_today(args.start_time, args.end_time, args.clear_page, override=args.override_existing)
     elif args.system_mode == "report_yesterday":
-        reporter.report_yesterday(args.start_time, args.end_time, args.clear_page)
+        reporter.report_yesterday(args.start_time, args.end_time, args.clear_page, override=args.override_existing)
     elif args.system_mode == "report_last_week":
-        reporter.report_last_week(args.start_time, args.end_time, args.clear_page)
+        reporter.report_last_week(args.start_time, args.end_time, args.clear_page, override=args.override_existing)
     else:
         print(f"There is no system mode '{args.system_mode}'")
 

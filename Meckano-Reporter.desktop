@@ -1,0 +1,11 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=1.0
+Name=Meckano-Reporter
+Comment=This is the reporter
+Exec=<script_directory>/report_last_week.sh
+Path=<script_directory>/
+Icon=<script_directory>/report.png
+Type=Application
+Terminal=false
+Categories=Utility;Application;
